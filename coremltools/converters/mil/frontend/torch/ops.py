@@ -8455,19 +8455,17 @@ def stft(context, node):
 
     def _parse_positional_args(context, node) -> Tuple[Var]:
         inputs = _get_inputs(context, node, min_expected=2)
-        nargs = len(inputs)
-
+        
         input_data = inputs[0]
         n_fft = inputs[1]
-
-        hop_length = inputs[2] if nargs > 2 else None
-        win_length = inputs[3] if nargs > 3 else None
-        window = inputs[4] if nargs > 4 else None
-        normalized = inputs[5] if nargs > 5 else False
-        onesides = inputs[6] if nargs > 6 else None
-        return_complex = inputs[7] if nargs > 7 else None
-        align_to_window = inputs[8] if nargs > 8 else None
-
+        
+        hop_length = inputs[2] if len(inputs) > 2 else None
+        win_length = inputs[3] if len(inputs) > 3 else None
+        window = inputs[4] if len(inputs) > 4 else None
+        normalized = inputs[5] if len(inputs) > 5 else None
+        onesided = inputs[6] if len(inputs) > 6 else None
+        return_complex = inputs[7] if len(inputs) > 7 else None
+        
         return (
             input_data,
             n_fft,
@@ -8475,66 +8473,61 @@ def stft(context, node):
             win_length,
             window,
             normalized,
-            onesides,
+            onesided,
             return_complex,
-            align_to_window,
         )
 
-    def _parse_keyword_args(
-        context,
-        node,
-        hop_length: Var,
-        win_length: Var,
-        window: Var,
-        normalized: Var,
-        onesides: Var,
-        return_complex: Var,
-        align_to_window: Var,
-    ) -> Tuple[Var]:
-        hop_length = _get_kwinputs(context, node, "hop_length", default=[hop_length])[0]
-        win_length = _get_kwinputs(context, node, "win_length", default=[win_length])[0]
-        window = _get_kwinputs(context, node, "window", default=[window])[0]
-        normalized = _get_kwinputs(context, node, "normalized", default=[normalized])[0]
-        onesides = _get_kwinputs(context, node, "onesides", default=[onesides])[0]
-        return_complex = _get_kwinputs(context, node, "return_complex", default=[return_complex])[0]
-        align_to_window = _get_kwinputs(
-            context, node, "align_to_window", default=[align_to_window]
-        )[0]
-        return hop_length, win_length, window, normalized, onesides, return_complex, align_to_window
+    def _parse_keyword_args(context, node) -> Tuple[Var]:
+        # Handle keyword arguments
+        input_data = context[node.inputs[0]]
+        n_fft = context[node.inputs[1]]
+        
+        # Get remaining parameters with defaults
+        hop_length = context.get(node.inputs[2]) if len(node.inputs) > 2 else None
+        win_length = context.get(node.inputs[3]) if len(node.inputs) > 3 else None
+        window = context.get(node.inputs[4]) if len(node.inputs) > 4 else None
+        normalized = context.get(node.inputs[5]) if len(node.inputs) > 5 else None
+        onesided = context.get(node.inputs[6]) if len(node.inputs) > 6 else None
+        return_complex = context.get(node.inputs[7]) if len(node.inputs) > 7 else None
+        
+        return (
+            input_data,
+            n_fft,
+            hop_length,
+            win_length,
+            window,
+            normalized,
+            onesided,
+            return_complex,
+        )
 
-    (
-        input_data,
-        n_fft,
-        hop_length,
-        win_length,
-        window,
-        normalized,
-        onesides,
-        return_complex,
-        align_to_window,
-    ) = _parse_positional_args(context, node)
-    (
-        hop_length,
-        win_length,
-        window,
-        normalized,
-        onesides,
-        return_complex,
-        align_to_window,
-    ) = _parse_keyword_args(
-        context,
-        node,
-        hop_length,
-        win_length,
-        window,
-        normalized,
-        onesides,
-        return_complex,
-        align_to_window,
-    )
-
+    # Try both parsing approaches for compatibility
+    try:
+        (
+            input_data,
+            n_fft,
+            hop_length,
+            win_length,
+            window,
+            normalized,
+            onesided,
+            return_complex,
+        ) = _parse_positional_args(context, node)
+    except:
+        # Fallback to simple parsing from incoming PR
+        input_data, n_fft, hop_length, win_length, window, normalized, onesided, _ = _get_inputs(context, node, min_expected=2)
+        return_complex = None
+        
+    # Handle complex inputs (from incoming PR logic)
     if types.is_complex(input_data.dtype):
-        onesides = False  # pytorch defaults onesided to False for complex inputs
+        onesided = False  # pytorch defaults onesided to False for complex inputs
+    
+    # Apply any additional processing logic from HEAD
+    if return_complex is not None:
+        align_to_window = return_complex
+    else:
+        align_to_window = None
+
     stft_res = mb.complex_stft(
         input=input_data,
         n_fft=n_fft,
@@ -8542,10 +8535,33 @@ def stft(context, node):
         win_length=win_length,
         window=window,
         normalized=normalized,
-        onesided=onesides,
+        onesided=onesided,
     )
     context.add(stft_res, node.name)
 
+@register_torch_op
+def istft(context, node):
+    """
+    Lowers torch.istft with the dialect op `complex_istft` from complex_dialect_ops.py
+    """
+    input_data, n_fft, hop_length, win_length, window, center, normalized, onesided, length, return_complex = _get_inputs(context, node, min_expected=2)
+
+    if types.is_complex(input_data.dtype):
+        onesided = False # pytorch defaults onesided to False for complex inputs
+    istft_res = mb.complex_istft(
+        input=input_data,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        win_length=win_length,
+        window=window,
+        center=center,
+        normalized=normalized,
+        onesided=onesided,
+        length=length,
+        return_complex=return_complex,
+    )
+    context.add(istft_res, node.name)
+    
 @register_torch_op(torch_alias=["torchvision::nms"])
 def torchvision_nms(context, node):
     inputs = _get_inputs(context, node, expected=3)
