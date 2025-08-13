@@ -454,18 +454,13 @@ def _istft(
 
     # Normalize by the window square
     window_square = mb.mul(x=window, y=window, before_op=before_op)
-    window_mtx = mb.stack(values=[window_square] * int(n_frames), axis=0, before_op=before_op)
+    window_mtx = mb.stack(values=[window_square] * n_frames, axis=0, before_op=before_op)
     window_mtx = mb.expand_dims(x=window_mtx, axes=(0,), before_op=before_op)
     window_envelope = _overlap_add(x=window_mtx, n_fft=n_fft, hop_length=hop_length, before_op=before_op)
-
-    # Add epsilon to avoid div-by-zero (match PyTorch's 1e-11)
-    epsilon = mb.fill(shape=mb.shape(x=window_envelope, before_op=before_op), value=1e-11, before_op=before_op)
-    window_envelope = mb.add(x=window_envelope, y=epsilon, before_op=before_op)
 
     # After this operation if it didn't have any channels dimention it adds one
     real_result = mb.real_div(x=real_result, y=window_envelope, before_op=before_op)
     imag_result = mb.real_div(x=imag_result, y=window_envelope, before_op=before_op)
-
     # We need to adapt last dimension
     if length is not None:
         if length.val > expected_output_signal_len:
