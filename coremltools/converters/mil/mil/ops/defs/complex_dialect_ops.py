@@ -921,17 +921,66 @@ class complex_istft(operation.Operation):
         )
 
     def type_inference(self):
-        should_return_complex = self.return_complex and self.return_complex.val
+        # 1) Decide output dtype
+        should_return_complex = bool(self.return_complex and getattr(self.return_complex, "val", False))
         output_type = types.complex64 if should_return_complex else types.fp32
 
-        # add batch size if given
-        output_shape = [self.input.shape[0] if self.input.rank == 3 else 1]
+        # 2) Helper to extract a Python int from symbols/Vars
+        import numbers
 
-        if self.length:
-            output_shape += [self.length]
+        def _ival(x, default=None):
+            # Already an integer-like scalar (includes numpy.int32/int64, etc.)
+            if isinstance(x, numbers.Integral):
+                return int(x)
+
+            # MIL const Var with integer-like .val
+            v = getattr(x, "val", None)
+            if isinstance(v, numbers.Integral):
+                return int(v)
+
+            # Some shapes/attrs can be float-but-integer
+            if isinstance(x, float) and x.is_integer():
+                return int(x)
+            if isinstance(v, float) and v.is_integer():
+                return int(v)
+
+            # Last-resort: try __int__
+            try:
+                return int(x)
+            except Exception:
+                pass
+            try:
+                return int(v)
+            except Exception:
+                pass
+
+            # Fallback: do NOT return a Var
+            return default
+
+        # 3) Batch/leading dimension
+        if self.input.rank == 3:
+            bdim = _ival(self.input.shape[0], 1)  # default to 1 if unknown
         else:
-            n_frames = self.input.shape[-1]
-            hop_length = self.hop_length.val if self.hop_length else self.n_fft.val // 4
-            output_shape += [self.n_fft.val + hop_length * (n_frames - 1)]
+            bdim = 1
 
-        return types.tensor(output_type, tuple(output_shape))
+        # 4) Time length (must be a concrete int)
+        if self.length is not None:
+            L = _ival(self.length, None)
+            if L is None:
+                # length is declared const=True in input_spec; it should be concrete.
+                # If it isn't, bail loudly to avoid returning a wrong static shape.
+                raise ValueError("complex_istft.type_inference: expected concrete integer for `length`")
+        else:
+            n_frames = _ival(self.input.shape[-1], None)
+            hop = _ival(self.hop_length, None)
+            nfft = _ival(self.n_fft, 0)
+            if hop is None:
+                hop = nfft // 4
+            if n_frames is None:
+                # If frame count is unknown here, choose a safe minimal value of 1
+                # (this avoids 0-length shapes and keeps types consistent).
+                n_frames = 1
+            L = nfft + hop * (n_frames - 1)
+
+        # 5) Return fully concrete shape (tuple of Python ints)
+        return types.tensor(output_type, (bdim, L))
