@@ -979,7 +979,7 @@ def gt(context, node):
     context.add(greater)
 
 
-@register_torch_op(torch_alias=["t", "numpy_t"])
+@register_torch_op(torch_alias=["t", "numpy_t", "transpose_copy"])
 def transpose(context, node):
     assert len(node.outputs) == 1
     inputs = _get_inputs(context, node)
@@ -5950,7 +5950,7 @@ def split(context, node):
     context.add(res, torch_name=node.name)
 
 
-@register_torch_op
+@register_torch_op(torch_alias=["unbind_copy"])
 def unbind(context, node):
     def _parse_positional_args(context, node) -> Tuple[Var]:
         inputs = _get_inputs(context, node, expected=(1, 2))
