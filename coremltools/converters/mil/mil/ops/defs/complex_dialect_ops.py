@@ -858,7 +858,7 @@ class complex_stft(operation.Operation):
         return types.tensor(output_type, tuple(output_shape))
 
 @register_op(namespace="complex")
-class complex_istft(Operation):
+class complex_istft(operation.Operation):
     """
     Dialect op for 1-D ISTFT.
 
