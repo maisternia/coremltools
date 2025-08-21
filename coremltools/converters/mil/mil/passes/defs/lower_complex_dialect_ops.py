@@ -754,7 +754,7 @@ def _lower_complex_shape(op: Operation):
 
 @LowerComplex.register_lower_func(op_type="complex_abs")
 def _lower_complex_abs(op: Operation):
-    mag_r, mag_i = (mb.square(x=x) for x in (op.x.real, op.x.imag))
+    mag_r, mag_i = (mb.square(x=x) for x in (op.data.real, op.data.imag))
     mag = mb.add(
         x=mag_r,
         y=mag_i,
@@ -776,7 +776,6 @@ def _match_and_replace_dialect_op(block, op):
         raise ValueError(f"Unable to lower complex dialect op {op}")
     block.remove_ops([op])
     return True
-
 
 @block_context_manager
 def _lower_complex_dialect_ops_in_block(block):
